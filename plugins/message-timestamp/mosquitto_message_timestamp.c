@@ -17,17 +17,18 @@ Contributors:
 */
 
 /*
- * Add an MQTT v5 user-property with key "timestamp" and value of timestamp in ISO-8601 format to all messages.
+ * Add an MQTT v5 user-property with key "timestamp" and value of timestamp in ISO-8601 format with nanosecond precision.
  *
  * Compile with:
- *   gcc -I<path to mosquitto-repo/include> -fPIC -shared mosquitto_timestamp.c -o mosquitto_timestamp.so
+ *   gcc -I<path to mosquitto-repo/include> -fPIC -shared mosquitto_message_timestamp.c -o mosquitto_message_timestamp.so
  *
  * Use in config with:
  *
- *   plugin /path/to/mosquitto_timestamp.so
+ *   plugin /path/to/mosquitto_message_timestamp.so
  *
  * Note that this only works on Mosquitto 2.0 or later.
  */
+
 #include "config.h"
 
 #include <stdio.h>
@@ -42,48 +43,55 @@ static mosquitto_plugin_id_t *mosq_pid = NULL;
 
 static int callback_message(int event, void *event_data, void *userdata)
 {
-	struct mosquitto_evt_message *ed = event_data;
-	struct timespec ts;
-	struct tm *ti;
-	char time_buf[25];
+    struct mosquitto_evt_message *ed = event_data;
+    struct timespec ts;
+    struct tm *ti;
+    char time_buf[35];  // Increased size to accommodate nanoseconds
 
-	UNUSED(event);
-	UNUSED(userdata);
+    UNUSED(event);
+    UNUSED(userdata);
 
-	clock_gettime(CLOCK_REALTIME, &ts);
-	ti = gmtime(&ts.tv_sec);
-	strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", ti);
+    // Get the current time with nanosecond precision
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ti = gmtime(&ts.tv_sec);
 
-	return mosquitto_property_add_string_pair(&ed->properties, MQTT_PROP_USER_PROPERTY, "timestamp", time_buf);
+    // Format time with nanosecond precision
+    snprintf(time_buf, sizeof(time_buf), "%04d-%02d-%02dT%02d:%02d:%02d.%09ldZ",
+             ti->tm_year + 1900, ti->tm_mon + 1, ti->tm_mday,
+             ti->tm_hour, ti->tm_min, ti->tm_sec,
+             ts.tv_nsec);  // Directly include nanoseconds
+
+    // Add the timestamp as an MQTT v5 user property
+    return mosquitto_property_add_string_pair(&ed->properties, MQTT_PROP_USER_PROPERTY, "timestamp", time_buf);
 }
 
 int mosquitto_plugin_version(int supported_version_count, const int *supported_versions)
 {
-	int i;
+    int i;
 
-	for(i=0; i<supported_version_count; i++){
-		if(supported_versions[i] == 5){
-			return 5;
-		}
-	}
-	return -1;
+    for(i = 0; i < supported_version_count; i++) {
+        if(supported_versions[i] == 5) {
+            return 5;
+        }
+    }
+    return -1;
 }
 
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *opts, int opt_count)
 {
-	UNUSED(user_data);
-	UNUSED(opts);
-	UNUSED(opt_count);
+    UNUSED(user_data);
+    UNUSED(opts);
+    UNUSED(opt_count);
 
-	mosq_pid = identifier;
-	return mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE, callback_message, NULL, NULL);
+    mosq_pid = identifier;
+    return mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE, callback_message, NULL, NULL);
 }
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)
 {
-	UNUSED(user_data);
-	UNUSED(opts);
-	UNUSED(opt_count);
+    UNUSED(user_data);
+    UNUSED(opts);
+    UNUSED(opt_count);
 
-	return mosquitto_callback_unregister(mosq_pid, MOSQ_EVT_MESSAGE, callback_message, NULL);
+    return mosquitto_callback_unregister(mosq_pid, MOSQ_EVT_MESSAGE, callback_message, NULL);
 }
